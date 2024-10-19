@@ -1,18 +1,29 @@
 package net.tropicraft.core.common.dimension.feature.tree;
 
+import com.google.common.collect.Iterables;
+import com.google.common.collect.Sets;
 import com.mojang.serialization.Codec;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.LevelAccessor;
 import net.minecraft.world.level.WorldGenLevel;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.levelgen.feature.FeaturePlaceContext;
 import net.minecraft.world.level.levelgen.feature.configurations.NoneFeatureConfiguration;
+import net.minecraft.world.level.levelgen.structure.BoundingBox;
+import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
+import net.minecraft.world.phys.shapes.DiscreteVoxelShape;
+import org.joml.Vector3i;
+
+import java.util.List;
+import java.util.Set;
 
 import static net.tropicraft.core.common.dimension.feature.TropicraftFeatureUtil.goesBeyondWorldSize;
 import static net.tropicraft.core.common.dimension.feature.TropicraftFeatureUtil.isBBAvailable;
 
 public class TallRainforestTreeFeature extends RainforestTreeFeature {
+    public static final List<BlockPos> ROTATION_VECTORS = BlockPos.betweenClosedStream(-1, 0, -1, 1, 0, 1).map(BlockPos::immutable).filter((e) -> Vector3i.length(e.getX(), e.getY(), e.getZ()) != 0).toList();
 
     private static final int VINE_CHANCE = 5;
     private static final int SMALL_LEAF_CHANCE = 3;
@@ -66,25 +77,29 @@ public class TallRainforestTreeFeature extends RainforestTreeFeature {
             return false;
         }
 
-        setState(world, new BlockPos(i, j - 1, k), Blocks.DIRT.defaultBlockState());
-        setState(world, new BlockPos(i - 1, j - 1, k), Blocks.DIRT.defaultBlockState());
-        setState(world, new BlockPos(i + 1, j - 1, k), Blocks.DIRT.defaultBlockState());
-        setState(world, new BlockPos(i, j - 1, k - 1), Blocks.DIRT.defaultBlockState());
-        setState(world, new BlockPos(i, j - 1, k + 1), Blocks.DIRT.defaultBlockState());
+        Set<BlockPos> logs = Sets.newHashSet();
+        Set<BlockPos> leaves = Sets.newHashSet();
+        Set<BlockPos> dirt = Sets.newHashSet();
+
+        setState(dirt, world, new BlockPos(i, j - 1, k), Blocks.DIRT.defaultBlockState());
+        setState(dirt, world, new BlockPos(i - 1, j - 1, k), Blocks.DIRT.defaultBlockState());
+        setState(dirt, world, new BlockPos(i + 1, j - 1, k), Blocks.DIRT.defaultBlockState());
+        setState(dirt, world, new BlockPos(i, j - 1, k - 1), Blocks.DIRT.defaultBlockState());
+        setState(dirt, world, new BlockPos(i, j - 1, k + 1), Blocks.DIRT.defaultBlockState());
 
         for (int y = j; y < j + height; y++) {
-            placeLog(world, i, y, k);
-            placeLog(world, i - 1, y, k);
-            placeLog(world, i + 1, y, k);
-            placeLog(world, i, y, k - 1);
-            placeLog(world, i, y, k + 1);
+            placeLog(logs, world, i, y, k);
+            placeLog(logs, world, i - 1, y, k);
+            placeLog(logs, world, i + 1, y, k);
+            placeLog(logs, world, i, y, k - 1);
+            placeLog(logs, world, i, y, k + 1);
 
             if (y - j > height / 2 && rand.nextInt(SMALL_LEAF_CHANCE) == 0) {
                 int nx = rand.nextInt(3) - 1 + i;
                 int nz = rand.nextInt(3) - 1 + k;
 
-                genCircle(world, new BlockPos(nx, y + 1, nz), 1, 0, getLeaf(), false);
-                genCircle(world, nx, y, nz, 2, 1, getLeaf(), false);
+                genCircle(leaves, world, new BlockPos(nx, y + 1, nz), 1, 0, getLeaf(), false);
+                genCircle(leaves, world, nx, y, nz, 2, 1, getLeaf(), false);
             }
             if (y - j > height - (height / 4) && y - j < height - 3 && rand.nextInt(SECOND_CANOPY_CHANCE) == 0) {
                 int nx = i + rand.nextInt(9) - 4;
@@ -92,20 +107,33 @@ public class TallRainforestTreeFeature extends RainforestTreeFeature {
 
                 int leafSize = rand.nextInt(3) + 5;
 
-                genCircle(world, nx, y + 3, nz, leafSize - 2, 0, getLeaf(), false);
-                genCircle(world, nx, y + 2, nz, leafSize - 1, leafSize - 3, getLeaf(), false);
-                genCircle(world, nx, y + 1, nz, leafSize, leafSize - 1, getLeaf(), false);
+                genCircle(leaves, world, nx, y + 3, nz, leafSize - 2, 0, getLeaf(), false);
+                genCircle(leaves, world, nx, y + 2, nz, leafSize - 1, leafSize - 3, getLeaf(), false);
+                genCircle(leaves, world, nx, y + 1, nz, leafSize, leafSize - 1, getLeaf(), false);
 
-                placeBlockLine(world, new int[]{i, y - 2, k}, new int[]{nx, y + 2, nz}, getLog());
+                placeBlockLine(logs, world, new int[]{i, y - 2, k}, new int[]{nx, y + 2, nz}, getLog());
             }
         }
 
         int leafSize = rand.nextInt(5) + 9;
 
-        genCircle(world, i, j + height, k, leafSize - 2, 0, getLeaf(), false);
-        genCircle(world, i, j + height - 1, k, leafSize - 1, leafSize - 4, getLeaf(), false);
-        genCircle(world, i, j + height - 2, k, leafSize, leafSize - 1, getLeaf(), false);
+        genCircle(leaves, world, i, j + height, k, leafSize - 2, 0, getLeaf(), false);
+        genCircle(leaves, world, i, j + height - 1, k, leafSize - 1, leafSize - 4, getLeaf(), false);
+        genCircle(leaves, world, i, j + height - 2, k, leafSize, leafSize - 1, getLeaf(), false);
 
-        return true;
+        for (BlockPos offset : ROTATION_VECTORS) {
+            BlockPos endPos = new BlockPos(i, j, k).offset(offset.multiply(leafSize - 4));
+            if (Vector3i.length(offset.getX(), offset.getY(), offset.getZ()) > 1) {
+                endPos = new BlockPos(i, j, k).offset(offset.multiply((leafSize / 2)));
+            }
+            endPos = endPos.offset(1 - rand.nextInt(3), 0, 1 - rand.nextInt(3));
+            placeBlockLine(logs, world, new int[]{i, j + height - 1, k}, new int[]{endPos.getX(), j + height - 1, endPos.getZ()}, getLog());
+        }
+
+        return BoundingBox.encapsulatingPositions(Iterables.concat(dirt, logs, leaves)).map((box) -> {
+            DiscreteVoxelShape discretevoxelshape = PalmTreeFeature.updateLeaves(world, box, logs);
+            StructureTemplate.updateShapeAtEdge(world, 3, discretevoxelshape, box.minX(), box.minY(), box.minZ());
+            return true;
+        }).orElse(false);
     }
 }
